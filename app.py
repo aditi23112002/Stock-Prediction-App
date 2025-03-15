@@ -10,10 +10,19 @@ import datetime
 # Load the trained model and scaler
 @st.cache_resource
 def load_trained_model():
-    if not os.path.exists("stock_lstm_model.h5") or not os.path.exists("scaler.pkl"):
-        st.error("⚠️ Model files not found! Train the model first.")
+    model_path = "stock_model.h5"
+    scaler_path = "scaler.pkl"
+
+    # Check if the files exist before loading
+    if not os.path.exists(model_path):
+        st.error(f"⚠️ Model file not found: {model_path}")
         st.stop()
-    return load_model("stock_lstm_model.h5"), joblib.load("scaler.pkl")
+    
+    if not os.path.exists(scaler_path):
+        st.error(f"⚠️ Scaler file not found: {scaler_path}")
+        st.stop()
+    
+    return load_model(model_path), joblib.load(scaler_path)
 
 # Function to predict future stock prices
 def predict_future_prices(model, scaler, days=30):
