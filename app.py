@@ -1,65 +1,60 @@
+import streamlit as st
 import numpy as np
 import pandas as pd
 import yfinance as yf
-import pickle
-import streamlit as st
+import joblib
 import plotly.graph_objects as go
 from tensorflow.keras.models import load_model
+from datetime import datetime, timedelta
 
-# 🔹 Load Model & Scaler
-model = load_model("stock_lstm_model.h5")
-with open("scaler.pkl", "rb") as f:
-    scaler = pickle.load(f)
+# Load Model & Scaler
+@st.cache_resource
+def load_trained_model():
+    return load_model("stock_model.h5"), joblib.load("scaler.pkl")
 
-# 🔹 Streamlit UI
-st.title("📈 Stock Price Prediction")
+model, scaler = load_trained_model()
+
+# UI Design
+st.set_page_config(page_title="Stock Price Prediction", layout="wide")
+st.markdown("<h1 style='text-align: center; color: pink;'>📈 Stock Price Prediction</h1>", unsafe_allow_html=True)
+
 st.sidebar.header("⚙️ User Input")
+ticker = st.sidebar.text_input("Enter Stock Ticker (e.g., ^NSEI, GOOGL)", "^NSEI").upper()
+future_days = st.sidebar.slider("Days to Predict", 1, 60, 30)
 
-# 🔹 User Input for Stock Ticker
-ticker = st.sidebar.text_input("Enter Stock Ticker (e.g., ^NSEI, GOOGL)", "^NSEI").strip().upper()
-future_days = st.sidebar.slider("Days to Predict", min_value=1, max_value=60, value=30)
-
-# 🔹 Fetch Stock Data
-try:
-    df = yf.download(ticker, start="2010-01-01", end="2024-01-01")
-    if df.empty:
-        st.error("⚠️ Invalid Ticker or No Data Found! Try a different one.")
-        st.stop()
-except Exception as e:
-    st.error(f"⚠️ Error fetching data: {e}")
+# Fetch Data
+df = yf.download(ticker, period="5y", interval="1d")
+if df.empty:
+    st.error(f"❌ Failed to fetch {ticker}. Try another.")
     st.stop()
 
-df = df[['Close']]
-
-# 🔹 Prepare Data for Prediction
+# Preprocess Data
 scaled_data = scaler.transform(df['Close'].values.reshape(-1, 1))
 last_sequence = scaled_data[-60:]
 
-# 🔹 Function to Predict Future Prices
-def predict_future(model, last_sequence, scaler, n_future):
+# Prediction Function
+def predict_future(model, last_sequence, scaler, future_days):
     future_predictions = []
-    current_sequence = last_sequence.copy().reshape(1, last_sequence.shape[0], 1)
+    current_sequence = last_sequence.copy()
 
-    for _ in range(n_future):
-        current_prediction = model.predict(current_sequence)
-        future_predictions.append(current_prediction[0][0])
-        current_sequence = np.roll(current_sequence, -1, axis=1)
-        current_sequence[0, -1, 0] = current_prediction[0][0]
+    for _ in range(future_days):
+        pred = model.predict(current_sequence.reshape(1, -1, 1))[0, 0]
+        future_predictions.append(pred)
+        current_sequence = np.append(current_sequence[1:], pred).reshape(-1, 1)
 
-    return scaler.inverse_transform(np.array(future_predictions).reshape(-1, 1))
+    return scaler.inverse_transform(np.array(future_predictions).reshape(-1, 1)).flatten()
 
-# 🔹 Predict Future Prices
-future_predictions = predict_future(model, last_sequence, scaler, future_days)
+# Generate Predictions
+future_dates = [df.index[-1] + timedelta(days=i) for i in range(1, future_days+1)]
+predictions = predict_future(model, last_sequence, scaler, future_days)
 
-# 🔹 Create Date Range for Future Predictions
-future_dates = pd.date_range(df.index[-1], periods=future_days+1)[1:]
-
-# 🔹 Plotly Graph
+# Plot
 fig = go.Figure()
-fig.add_trace(go.Scatter(x=df.index, y=df["Close"], mode="lines", name="Actual Prices", line=dict(color="cyan")))
-fig.add_trace(go.Scatter(x=future_dates, y=future_predictions.flatten(), mode="lines", name="Predicted Prices", line=dict(dash="dash", color="red")))
+fig.add_trace(go.Scatter(x=df.index, y=df["Close"], mode='lines', name="Actual Prices", line=dict(color='cyan')))
+fig.add_trace(go.Scatter(x=future_dates, y=predictions, mode='lines+markers', name="Predicted Prices", line=dict(color='red', dash="dash")))
+
 fig.update_layout(title=f"{ticker} Stock Price Prediction", xaxis_title="Date", yaxis_title="Stock Price", template="plotly_dark")
 
-st.plotly_chart(fig)
+st.plotly_chart(fig, use_container_width=True)
 
 st.success(f"✅ Prediction Complete for {future_days} days!")
