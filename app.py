@@ -14,7 +14,7 @@ st.set_page_config(page_title="Stock Price Predictor", layout="wide")
 st.title("📈 Stock Price Prediction Dashboard")
 
 # User Input: Ticker
-ticker = st.text_input("Enter Stock Ticker (e.g., ^NSEI for NIFTY, GOOG, AAPL)", "^NSEI").upper()
+ticker = st.text_input("Enter Stock Ticker (e.g., ^NSEI for NIFTY, GOOG)", "^NSEI").upper()
 model_file = f"{ticker}_lstm_model.h5"
 scaler_file = f"{ticker}_scaler.pkl"
 
