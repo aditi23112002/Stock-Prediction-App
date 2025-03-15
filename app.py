@@ -1,78 +1,72 @@
 import streamlit as st
-import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
+import pandas as pd
+import yfinance as yf
+import tensorflow as tf
 import joblib
-import os
-from keras.models import load_model
-import datetime
+from tensorflow.keras.models import load_model
+from sklearn.preprocessing import MinMaxScaler
 
-# Load the trained model and scaler
-@st.cache_resource
-def load_trained_model():
-    model_path = "stock_model.h5"
-    scaler_path = "scaler.pkl"
+st.set_page_config(page_title="Stock Price Predictor", layout="wide")
 
-    # Check if the files exist before loading
-    if not os.path.exists(model_path):
-        st.error(f"⚠️ Model file not found: {model_path}")
-        st.stop()
-    
-    if not os.path.exists(scaler_path):
-        st.error(f"⚠️ Scaler file not found: {scaler_path}")
-        st.stop()
-    
-    return load_model(model_path), joblib.load(scaler_path)
+# Load model and scaler
+def load_trained_model(ticker):
+    try:
+        model = load_model(f"{ticker}_lstm_model.h5")
+        scaler = joblib.load("scaler.pkl")
+        return model, scaler
+    except:
+        return None, None
 
-# Function to predict future stock prices
-def predict_future_prices(model, scaler, days=30):
-    last_known_price = np.random.uniform(5000, 6000)  # Replace with real last stock price
+# Fetch stock data
+def get_stock_data(ticker, start='2010-01-01', end='2025-01-01'):
+    data = yf.download(ticker, start=start, end=end)
+    return data[['Close']]
+
+# Prepare data for prediction
+def prepare_prediction_data(data, scaler, time_steps=60):
+    scaled_data = scaler.transform(data)
+    X_test = [scaled_data[-time_steps:]]
+    return np.array(X_test)
+
+# Predict future stock prices
+def predict_future_prices(model, scaler, last_60_days, days=30):
     predictions = []
+    last_input = last_60_days.copy()
 
     for _ in range(days):
-        pred_price = last_known_price + np.random.uniform(-50, 50)  # Simulate small changes
-        predictions.append(pred_price)
-        last_known_price = pred_price
+        X_test = np.array([last_input])
+        pred = model.predict(X_test)
+        predictions.append(pred[0][0])
+        last_input = np.vstack([last_input[1:], pred])
+    
+    return scaler.inverse_transform(np.array(predictions).reshape(-1, 1))
 
-    return np.array(predictions)
+# Streamlit UI
+st.title("📈 Stock Price Prediction Dashboard")
+ticker = st.text_input("Enter Stock Ticker (e.g., NIFTY, GOOG, AAPL)", "NIFTY").upper()
 
-# App Title
-st.title("📈 Stock Price Prediction")
+if st.button("Load Model"):
+    model, scaler = load_trained_model(ticker)
+    
+    if model is None:
+        st.error("No trained model found! Please train it first using model.py.")
+    else:
+        st.success(f"Model for {ticker} loaded successfully!")
 
-# User Input Section
-st.sidebar.header("⚙️ User Input")
-stock_ticker = st.sidebar.text_input("Enter Stock Ticker (e.g., ^NSEI, GOOGL)", "^NSEI")
-days_to_predict = st.sidebar.slider("Days to Predict", 1, 60, 30)
+        data = get_stock_data(ticker)
+        st.line_chart(data['Close'], use_container_width=True)
 
-# Load the model
-model, scaler = load_trained_model()
+        time_steps = 60
+        last_60_days = data['Close'].values[-time_steps:].reshape(-1, 1)
+        last_60_scaled = scaler.transform(last_60_days)
 
-# Generate predictions
-future_prices = predict_future_prices(model, scaler, days_to_predict)
-dates = pd.date_range(start=datetime.date.today(), periods=days_to_predict)
-
-# 🔹 Normal Graph: Actual vs Predicted Prices
-st.subheader(f"📊 {stock_ticker} Stock Price Prediction")
-fig, ax = plt.subplots(figsize=(10, 5))
-ax.plot(dates, future_prices, label="Predicted Prices", linestyle="dashed", color="red")
-ax.set_xlabel("Date")
-ax.set_ylabel("Stock Price")
-ax.legend()
-st.pyplot(fig)
-
-# 🔹 Future Price Range Display
-st.subheader("📉 Future Price Prediction Range")
-min_price = np.min(future_prices)
-max_price = np.max(future_prices)
-st.success(f"✅ **Expected price range in the next {days_to_predict} days:** ₹{min_price:.2f} - ₹{max_price:.2f}")
-
-# 🔹 Time Series Graph for Trend Analysis
-st.subheader("📅 Time Series Analysis")
-fig2, ax2 = plt.subplots(figsize=(10, 5))
-ax2.plot(dates, future_prices, label="Predicted Trend", color="purple")
-ax2.fill_between(dates, min_price, max_price, color="purple", alpha=0.2)
-ax2.set_xlabel("Date")
-ax2.set_ylabel("Stock Price")
-ax2.legend()
-st.pyplot(fig2)
-
+        future_days = st.slider("Select Future Days to Predict", 1, 30, 10)
+        future_predictions = predict_future_prices(model, scaler, last_60_scaled, future_days)
+        
+        future_dates = pd.date_range(start=data.index[-1], periods=future_days + 1)[1:]
+        prediction_df = pd.DataFrame({'Date': future_dates, 'Predicted Price': future_predictions.flatten()})
+        
+        st.write("### Future Predictions")
+        st.dataframe(prediction_df)
+        st.line_chart(prediction_df.set_index("Date"), use_container_width=True)
