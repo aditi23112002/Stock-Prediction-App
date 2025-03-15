@@ -4,20 +4,19 @@ import pandas as pd
 import yfinance as yf
 import tensorflow as tf
 import joblib
+import os
 from tensorflow.keras.models import load_model
 from sklearn.preprocessing import MinMaxScaler
 
 st.set_page_config(page_title="Stock Price Predictor", layout="wide")
 
 # Load model and scaler
-def load_trained_model(ticker):
-    try:
-        model = load_model(f"{ticker}_lstm_model.h5")
-        scaler = joblib.load("scaler.pkl")
-        return model, scaler
-    except:
-        return None, None
-
+# Check if model exists
+if not os.path.exists("NIFTY_lstm_model.h5"):
+    raise FileNotFoundError("No trained model found! Please train it first using model.py.")
+# Load trained model
+model = load_model("NIFTY_lstm_model.h5")
+scaler = joblib.load("scaler.pkl")
 # Fetch stock data
 def get_stock_data(ticker, start='2010-01-01', end='2025-01-01'):
     data = yf.download(ticker, start=start, end=end)
