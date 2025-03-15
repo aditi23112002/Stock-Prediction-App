@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 # Load Model & Scaler
 @st.cache_resource
 def load_trained_model():
-    return load_model("stock_model.h5"), joblib.load("scaler.pkl")
+    return load_model("stock_lstm_model.h5"), joblib.load("scaler.pkl")
 
 model, scaler = load_trained_model()
 
