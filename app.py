@@ -13,7 +13,7 @@ def load_trained_model():
     if not os.path.exists("stock_lstm_model.h5") or not os.path.exists("scaler.pkl"):
         st.error("⚠️ Model files not found! Train the model first.")
         st.stop()
-    return load_model("stock_model.h5"), joblib.load("scaler.pkl")
+    return load_model("stock_lstm_model.h5"), joblib.load("scaler.pkl")
 
 # Function to predict future stock prices
 def predict_future_prices(model, scaler, days=30):
