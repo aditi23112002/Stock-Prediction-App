@@ -1,121 +1,65 @@
-import streamlit as st
 import numpy as np
 import pandas as pd
 import yfinance as yf
+import pickle
+import streamlit as st
 import plotly.graph_objects as go
 from tensorflow.keras.models import load_model
-from sklearn.preprocessing import MinMaxScaler
-from datetime import datetime, timedelta
 
-# 🔹 Set Page Configuration
-st.set_page_config(page_title="Stock Price Prediction", layout="wide")
+# 🔹 Load Model & Scaler
+model = load_model("stock_lstm_model.h5")
+with open("scaler.pkl", "rb") as f:
+    scaler = pickle.load(f)
 
-# 🎯 Load LSTM Model with Caching to Optimize Performance
-@st.cache_resource
-def load_stock_model():
-    return load_model("stock_lstm_model.h5")
+# 🔹 Streamlit UI
+st.title("📈 Stock Price Prediction")
+st.sidebar.header("⚙️ User Input")
 
-model = load_stock_model()
+# 🔹 User Input for Stock Ticker
+ticker = st.sidebar.text_input("Enter Stock Ticker (e.g., ^NSEI, GOOGL)", "^NSEI").strip().upper()
+future_days = st.sidebar.slider("Days to Predict", min_value=1, max_value=60, value=30)
 
-# 🎯 Function to Fetch Stock Data (Cached)
-@st.cache_data
-def fetch_stock_data(ticker, start_date, end_date):
-    df = yf.download(ticker, start=start_date, end=end_date)
-    return df
+# 🔹 Fetch Stock Data
+try:
+    df = yf.download(ticker, start="2010-01-01", end="2024-01-01")
+    if df.empty:
+        st.error("⚠️ Invalid Ticker or No Data Found! Try a different one.")
+        st.stop()
+except Exception as e:
+    st.error(f"⚠️ Error fetching data: {e}")
+    st.stop()
 
-# 🎯 Function to Predict Future Prices
+df = df[['Close']]
+
+# 🔹 Prepare Data for Prediction
+scaled_data = scaler.transform(df['Close'].values.reshape(-1, 1))
+last_sequence = scaled_data[-60:]
+
+# 🔹 Function to Predict Future Prices
 def predict_future(model, last_sequence, scaler, n_future):
     future_predictions = []
-    current_sequence = last_sequence.copy()
+    current_sequence = last_sequence.copy().reshape(1, last_sequence.shape[0], 1)
 
     for _ in range(n_future):
-        current_sequence = current_sequence.reshape(1, current_sequence.shape[0], 1)
-        current_prediction = model.predict(current_sequence, verbose=0)
-        future_predictions.append(current_prediction[0])
-        current_sequence = np.roll(current_sequence, -1)
-        current_sequence[-1] = current_prediction
+        current_prediction = model.predict(current_sequence)
+        future_predictions.append(current_prediction[0][0])
+        current_sequence = np.roll(current_sequence, -1, axis=1)
+        current_sequence[0, -1, 0] = current_prediction[0][0]
 
-    return scaler.inverse_transform(np.array(future_predictions))
+    return scaler.inverse_transform(np.array(future_predictions).reshape(-1, 1))
 
-# 🎯 Streamlit Sidebar for User Inputs
-st.sidebar.header("🔹 Settings")
-ticker = st.sidebar.text_input("📌 Enter Stock Ticker", "AAPL")
-start_date = st.sidebar.date_input("📅 Start Date", datetime(2022, 1, 1))
-end_date = st.sidebar.date_input("📅 End Date", datetime.today())
-future_days = st.sidebar.slider("⏳ Days to Predict", 10, 60, 30)
+# 🔹 Predict Future Prices
+future_predictions = predict_future(model, last_sequence, scaler, future_days)
 
-# 🎯 Prediction Button
-if st.sidebar.button("🔮 Predict"):
-    st.info("⏳ Fetching Stock Data...")
+# 🔹 Create Date Range for Future Predictions
+future_dates = pd.date_range(df.index[-1], periods=future_days+1)[1:]
 
-    # 🔹 Fetch Stock Data
-    stock_data = fetch_stock_data(ticker, start_date, end_date)
+# 🔹 Plotly Graph
+fig = go.Figure()
+fig.add_trace(go.Scatter(x=df.index, y=df["Close"], mode="lines", name="Actual Prices", line=dict(color="cyan")))
+fig.add_trace(go.Scatter(x=future_dates, y=future_predictions.flatten(), mode="lines", name="Predicted Prices", line=dict(dash="dash", color="red")))
+fig.update_layout(title=f"{ticker} Stock Price Prediction", xaxis_title="Date", yaxis_title="Stock Price", template="plotly_dark")
 
-    if stock_data.empty:
-        st.error("❌ Invalid Ticker Symbol or No Data Found!")
-    else:
-        st.success("✅ Data Loaded Successfully!")
+st.plotly_chart(fig)
 
-        # 🔹 Extract Close Prices & Normalize Data
-        close_prices = stock_data["Close"].values.reshape(-1, 1)
-        scaler = MinMaxScaler(feature_range=(0, 1))
-        scaled_data = scaler.fit_transform(close_prices)
-
-        # 🔹 Prepare Last Sequence
-        time_steps = 60  # Last 60 days for prediction
-        last_sequence = scaled_data[-time_steps:]
-
-        # 🔹 Predict Future Stock Prices
-        st.info("📊 Predicting Future Prices...")
-        future_predictions = predict_future(model, last_sequence, scaler, future_days)
-
-        # 🔹 Generate Future Dates
-        future_dates = [end_date + timedelta(days=i) for i in range(1, future_days + 1)]
-
-        # 🔹 Create DataFrame for Visualization
-        future_df = pd.DataFrame({"Date": future_dates, "Predicted Price": future_predictions.flatten()})
-
-        # 🔹 Interactive Stock Price Graph using Plotly
-        st.subheader(f"📈 {ticker} Stock Price Prediction for Next {future_days} Days")
-
-        fig = go.Figure()
-
-        # 🔹 Add Historical Data
-        fig.add_trace(go.Scatter(
-            x=stock_data.index, 
-            y=stock_data["Close"], 
-            mode="lines", 
-            name="📉 Historical Prices",
-            line=dict(color="blue")
-        ))
-
-        # 🔹 Add Future Predictions
-        fig.add_trace(go.Scatter(
-            x=future_df["Date"], 
-            y=future_df["Predicted Price"], 
-            mode="lines+markers", 
-            name="🔮 Predicted Prices",
-            line=dict(color="red", dash="dot")
-        ))
-
-        # 🔹 Customize Graph Layout
-        fig.update_layout(
-            title=f"{ticker} Stock Price Prediction",
-            xaxis_title="Date",
-            yaxis_title="Stock Price (USD)",
-            legend=dict(x=0, y=1),
-            template="plotly_dark",
-            height=500
-        )
-
-        # 🔹 Display Graph in Streamlit
-        st.plotly_chart(fig, use_container_width=True)
-
-        # 🔹 Show Future Predictions Data
-        st.subheader("📋 Future Predictions Data")
-        st.dataframe(future_df)
-
-# 🎯 Footer
-st.markdown("---")
-st.markdown("📌 Developed by **Aditi Garg** | 🚀 Powered by LSTM & Streamlit")
-
+st.success(f"✅ Prediction Complete for {future_days} days!")
