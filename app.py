@@ -28,7 +28,7 @@ else:
     st.stop()
 
 # Fetch stock data
-def get_stock_data(ticker, start='2010-01-01', end='2025-03-10'):
+def get_stock_data(ticker, start='2022-01-01', end='2025-03-10'):
     data = yf.download(ticker, start=start, end=end)
     return data[['Close']]
 
