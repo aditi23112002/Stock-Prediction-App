@@ -14,7 +14,7 @@ st.set_page_config(page_title="Stock Price Predictor", layout="wide")
 st.title("📈 Stock Price Prediction Dashboard")
 
 # User Input: Ticker
-ticker = st.text_input("Enter Stock Ticker (e.g., ^NSEI for NIFTY, GOOG)", "^NSEI").upper()
+ticker = st.text_input("Enter Stock Ticker (e.g., ^NSEI for NIFTY, GOOG,GODFRYPHLP.NS)", "^NSEI").upper()
 model_file = f"{ticker}_lstm_model.h5"
 scaler_file = f"{ticker}_scaler.pkl"
 
@@ -28,7 +28,7 @@ else:
     st.stop()
 
 # Fetch stock data
-def get_stock_data(ticker, start='2010-01-01', end='2025-01-01'):
+def get_stock_data(ticker, start='2010-01-01', end='2025-03-10'):
     data = yf.download(ticker, start=start, end=end)
     return data[['Close']]
 
